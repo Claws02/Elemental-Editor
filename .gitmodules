@@ -1,0 +1,4 @@
+[submodule "game"]
+	path = game
+	url = https://github.com/Claws02/Elemental
+	branch = claude/elemental-game-design-os46tu

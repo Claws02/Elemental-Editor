@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Build the page
+        run: npm run build
+      - name: Install Playwright Chromium
+        run: npm install --no-save playwright@1.56 && npx playwright install --with-deps chromium
+      - name: Editor test (the built page, end to end)
+        run: npm test
+      - name: Keep the screenshots and the built page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor
+          path: |
+            test/shots/
+            dist/elemental-editor.html
