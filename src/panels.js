@@ -241,6 +241,7 @@ function newCond(kind) {
     case 'state': return { state: { id: '', is: '' } };
     case 'ledger': return { ledger: { tally: 'harm', min: 1 } };
     case 'standing': return { standing: { region: doc.scene.settings?.region || 'verdant', atLeast: 3 } };
+    case 'many': return { many: { prefix: '', signal: 'burned', min: 1 } };
     }
     return { talking: false };
 }
@@ -294,6 +295,16 @@ export function condEditor(c, set, redraw) {
     case 'standing':
         args.append(select(v.region, Object.entries(REGION_NAMES), { onChange: x => put({ ...v, region: x }) }), h('span.unit', 'at least'),
             select(String(v.atLeast ?? 2), [['0', 'the cause of all this'], ['1', 'dangerous'], ['2', 'unpredictable'], ['3', 'necessary'], ['4', 'saviour']], { onChange: x => put({ ...v, atLeast: +x }) })); break;
+    case 'many': {
+        // Optional bounds: empty means no limit.
+        const num = (key, label) => [h('span.unit', label), textInput(v[key] === undefined ? '' : String(v[key]), { placeholder: 'any', onChange: x => { const n = parseInt(x, 10); put({ ...v, [key]: isFinite(n) && n >= 0 ? n : undefined }); } })];
+        args.append(textInput(v.prefix, { placeholder: 'names starting with, e.g. Veyra_House', onChange: x => put({ ...v, prefix: x }) }),
+            select(v.type || '', Object.keys(TYPES).map(t => [t, TYPES[t].label || t]), { empty: 'any type', onChange: x => put({ ...v, type: x || undefined }) }),
+            textInput(v.signal, { placeholder: 'signal: burned, broken…', onChange: x => put({ ...v, signal: x }) }),
+            ...num('min', 'at least'), ...num('max', 'at most'));
+        args.append(h('small.hint', 'Counts the objects whose names start with that text and give that signal now.'));
+        break;
+    }
     }
     box.append(args);
     return box;
@@ -314,6 +325,11 @@ function newAction(kind) {
     case 'setFlag': return { setFlag: { name: '', value: 'true' } };
     case 'setState': return { setState: { id: '', value: '' } };
     case 'ledger': return { ledger: { tally: 'care', add: 1 } };
+    case 'setElement': return { setElement: { el: 'fire', state: 'wild' } };
+    case 'mood': return { mood: { name: 'dusk', secs: 8 } };
+    case 'douseAll': return { douseAll: { by: 'environment' } };
+    case 'hint': return { hint: '' };
+    case 'npc': return { npc: { id: '', role: 'idle' } };
     }
     return { say: [] };
 }
@@ -361,6 +377,26 @@ export function actionEditor(a, set, redraw) {
     case 'ledger':
         args.append(select(v.tally, TALLIES, { onChange: x => put({ ...v, tally: x }) }), h('span.unit', 'add'),
             numberInput(v.add, { min: -50, max: 50, step: 0.5, onChange: x => put({ ...v, add: x }) })); break;
+    case 'setElement':
+        args.append(select(v.el, ELEMENTS, { onChange: x => put({ ...v, el: x }) }), h('span.unit', 'is'),
+            select(v.state, [['locked', 'locked'], ['wild', 'wild'], ['trained', 'trained']], { onChange: x => put({ ...v, state: x }) })); break;
+    case 'mood':
+        args.append(select(v.name, [['day', 'day'], ['dusk', 'dusk'], ['night', 'night']], { onChange: x => put({ ...v, name: x }) }), h('span.unit', 'over'),
+            numberInput(v.secs ?? 0, { min: 0, max: 120, step: 1, onChange: x => put({ ...v, secs: x }) }), h('span.unit', 's')); break;
+    case 'douseAll':
+        args.append(select(v?.by || 'environment', [['environment', 'nobody (it goes out)'], ['cael', 'Cael'], ['villager', 'the villagers'], ['player', 'the player']], { onChange: x => put({ by: x }) })); break;
+    case 'hint': args.append(textInput(v, { placeholder: 'Touch the fire and hold still', onChange: put })); break;
+    case 'npc': {
+        const npcIds = doc.scene.objects.filter(o => o.type === 'npc').map(o => [o.id, o.name || o.id]);
+        args.append(select(v.id, npcIds, { empty: 'Choose a character', onChange: x => put({ ...v, id: x }) }),
+            select(v.role, [['idle', 'stand and watch'], ['walk', 'walk to a point'], ['brigade', 'carry water to fires'], ['cower', 'keep away from creatures']], { onChange: x => { put({ ...v, role: x, target: x === 'walk' ? (v.target || { x: 0, z: 0 }) : undefined }); redraw(); } }));
+        if (v.role === 'walk') {
+            const t = v.target || { x: 0, z: 0 };
+            args.append(h('span.unit', 'x'), numberInput(t.x, { min: -500, max: 500, step: 0.5, onChange: x => put({ ...v, target: { ...t, x } }) }),
+                h('span.unit', 'z'), numberInput(t.z, { min: -500, max: 500, step: 0.5, onChange: z => put({ ...v, target: { ...t, z } }) }));
+        }
+        break;
+    }
     }
     box.append(args);
     return box;
@@ -430,7 +466,7 @@ export function storyPanel(root, api) {
                 h('button.btn.small', { type: 'button', disabled: i === s.steps.length - 1, on: { click: () => move(1) } }, '↓ Down'),
                 h('button.btn.small.danger', { type: 'button', on: { click: () => w(() => { S().steps.splice(i, 1); openSteps.clear(); }, true) } }, 'Delete step')));
             body.append(h('div.grid2',
-                field('Step name', textInput(st.id, { onChange: v => w(() => { const old = st.id; st.id = v.trim() || old; for (const x of S().steps) for (const e of x.ends || []) if (e.next === old) e.next = st.id; }) })),
+                field('Step name', textInput(st.id, { onChange: v => w(() => { const old = st.id; st.id = v.trim() || old; for (const x of S().steps) for (const e of [...(x.ends || []), ...(x.choices || [])]) if (e.next === old) e.next = st.id; }) })),
                 field('Marks', refInput(st.mark, { onChange: v => w(() => { if (v) st.mark = v; else delete st.mark; }) }), 'An Earth ring over it; the speaker points.')));
             body.append(field('Lines when the step starts', linesInput(st.say, { rows: 3, onChange: v => w(() => { st.say = v; }) })));
             body.append(field('Objective', textInput(st.objective || '', { placeholder: 'Shown at the top. {held} shows the held-steady timer.', onChange: v => w(() => { if (v) st.objective = v; else delete st.objective; }) })));
@@ -442,6 +478,17 @@ export function storyPanel(root, api) {
                 field('Say', linesInput(wt.say, { rows: 1, onChange: v => w(() => { wt.say = v; }) })),
                 h('h6', 'And do'), actionList(wt.do ||= [], w, redraw)),
             { add: () => w(() => st.waiting.push({ when: { time: 20 }, say: [], do: [] }), true), addLabel: 'reaction while waiting' }));
+            body.append(h('h5', 'Choices ', h('small', 'replies the player picks when the lines are done; the step waits for one')));
+            body.append(rowList(st.choices ||= [], (c, j) => h('div.card.sub.choice',
+                h('div.card-head', h('b', `Choice ${j + 1}`), xBtn('Remove choice', () => w(() => { st.choices.splice(j, 1); }, true))),
+                field('Reply', textInput(c.label || '', { placeholder: 'What the player says', onChange: v => w(() => { c.label = v; }) })),
+                h('div.grid2',
+                    field('Sets flag', textInput(c.flag?.name || '', { placeholder: 'flag name', onChange: v => w(() => { if (v) c.flag = { name: v, value: c.flag?.value ?? true }; else delete c.flag; }) })),
+                    field('To', textInput(c.flag ? String(c.flag.value ?? '') : '', { placeholder: 'a word or number', onChange: v => w(() => { if (c.flag) c.flag.value = v === '' ? true : isNaN(+v) ? v : +v; }) }))),
+                field('Then say', linesInput(c.say, { rows: 1, onChange: v => w(() => { c.say = v; }) })),
+                h('h6', 'And do'), actionList(c.do ||= [], w, redraw),
+                field('Then go to', select(c.next || '', [['', 'the next step'], ...stepIds.filter(x => x !== st.id).map(x => [x, x]), ['done', 'the end']], { onChange: v => w(() => { if (v) c.next = v; else delete c.next; }) }))),
+            { add: () => w(() => st.choices.push({ label: '', say: [], do: [] }), true), addLabel: 'choice' }));
             body.append(h('h5', 'Endings ', h('small', 'the first that holds finishes the step')));
             body.append(rowList(st.ends ||= [], (e, j) => h('div.card.sub.ending',
                 h('div.card-head', h('b', `Ending ${j + 1}`), xBtn('Remove ending', () => w(() => st.ends.splice(j, 1), true))),

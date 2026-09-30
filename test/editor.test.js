@@ -189,6 +189,18 @@ await wait(200);
 const lines = await ev(() => __ED.doc.scene.script.steps[1].say);
 check(JSON.stringify(lines) === '["That stone.","Lift it, slowly."]', `step lines are edited as one line per row (${JSON.stringify(lines)})`);
 await shot('E3-story');
+// A choice on the open step, with a new verb in it: the light changes.
+await page.click('.step.open button.add:has-text("choice")');
+await wait(300);
+await page.locator('.step.open .choice input[placeholder="What the player says"]').fill('Show me.');
+await page.locator('.step.open .choice input[placeholder="What the player says"]').dispatchEvent('change');
+await page.click('.step.open .choice button.add:has-text("action")');
+await wait(300);
+await page.locator('.step.open .choice .act .cond-kind select').selectOption('mood');
+await wait(300);
+const choice = await ev(() => __ED.doc.scene.script.steps[1].choices);
+check(choice?.length === 1 && choice[0].label === 'Show me.' && choice[0].do?.[0]?.mood?.name === 'dusk',
+    `a step takes choices, and a choice's actions include the new verbs (${JSON.stringify(choice)})`);
 
 // ---- 7. a building, broken apart ------------------------------------------------------------------------------
 await page.click('.lcard[data-key="prefab:cottage"]');
@@ -259,6 +271,23 @@ await page.click('#panel-toggle');
 await wait(400);
 await shot('E6-phone');
 check(!narrow.overflow && narrow.canvas >= 380, `at phone width the view fills the screen and nothing scrolls sideways (${JSON.stringify(narrow)})`);
+
+// ---- 13. the prologue: buildings, a stone, villagers with jobs, choices and every new verb --------------------------------
+await page.setViewportSize({ width: 1180, height: 820 });
+await page.click('#more');
+await wait(700);
+await page.click('.sheet .it:has-text("Prologue") button');
+await wait(2500);
+await page.click('[data-tab=story]');
+await wait(400);
+for (let i = 0; i < 13; i++) await page.click(`.step-head >> nth=${i}`);
+await wait(600);
+const pro = await ev(() => ({ id: __ED.doc.scene.id, drawn: __ED.view.models.size, n: __ED.doc.scene.objects.length, steps: document.querySelectorAll('.step.open').length, choices: document.querySelectorAll('.step.open .choice').length,
+    kinds: [...new Set([...document.querySelectorAll('.step.open .cond-kind select')].map(s => s.value))].sort() }));
+const wanted = ['many', 'mood', 'npc', 'douseAll', 'setElement', 'hint', 'travel'];
+check(pro.id === 'veyra' && pro.drawn === pro.n && pro.steps === 13 && pro.choices >= 5 && wanted.every(k => pro.kinds.includes(k)),
+    `opens the prologue: every object drawn, all 13 steps open with their choices and new verbs editable (${JSON.stringify({ ...pro, kinds: pro.kinds.length })})`);
+await shot('E7-prologue-story');
 
 check(errors.length === 0, 'no page errors' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
 await browser.close();
