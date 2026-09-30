@@ -331,6 +331,8 @@ function newAction(kind) {
     case 'hint': return { hint: '' };
     case 'npc': return { npc: { id: '', role: 'idle' } };
     case 'surge': return { surge: { el: 'fire', cause: 'awakening' } };
+    case 'protect': return { protect: 35 };
+    case 'flameSpill': return { flameSpill: { target: '', radius: 9, after: 25 } };
     }
     return { say: [] };
 }
@@ -398,6 +400,15 @@ export function actionEditor(a, set, redraw) {
         }
         break;
     }
+    case 'protect':
+        args.append(h('span.unit', 'health stays above'), numberInput(v ?? 0, { min: 0, max: 100, step: 5, onChange: put }), h('small.hint', 'While the player can’t fight back. 0 ends it.'));
+        break;
+    case 'flameSpill':
+        args.append(refInput(v.target, { types: ['timber_house'], onChange: x => put({ ...v, target: x }) }),
+            h('span.unit', 'within'), numberInput(v.radius ?? 9, { min: 1, max: 30, step: 0.5, onChange: x => put({ ...v, radius: x }) }), h('span.unit', 'm; anyway after'),
+            numberInput(v.after ?? 0, { min: 0, max: 600, step: 1, onChange: x => put({ ...v, after: x }) }), h('span.unit', 's'),
+            h('small.hint', 'The first flame jet near it spills onto it (not held against the player). 0 s: only if the jet comes near.'));
+        break;
     case 'surge':
         args.append(select(v.el, ELEMENTS, { onChange: x => { put({ ...v, el: x }); redraw(); } }),
             select(v.cause || 'awakening', [['awakening', 'not held against them'], ['surge', 'counted as theirs']], { onChange: x => put({ ...v, cause: x }) }));
