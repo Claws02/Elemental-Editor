@@ -8,7 +8,7 @@
 // removing rows does.
 // ============================================================
 
-import { TYPES, GROUPS, CONDITIONS, ACTIONS, ELEMENTS, TRACKS, REACTION_EVENTS, GROUND_STYLES, PROFILES, signalsOf, actionsOf } from '../game/src/scene/schema.js';
+import { TYPES, GROUPS, CONDITIONS, ACTIONS, ELEMENTS, TRACKS, TALLIES, REACTION_EVENTS, GROUND_STYLES, PROFILES, REGION_NAMES, signalsOf, actionsOf } from '../game/src/scene/schema.js';
 import { PREFABS, expandPrefab } from '../game/src/data/prefabs.js';
 import { withDefaults } from '../game/src/scene/Catalog.js';
 import { h, $, field, numberInput, textInput, linesInput, select, toggle, seg, ask, toast, fmt } from './ui.js';
@@ -237,6 +237,10 @@ function newCond(kind) {
     case 'count': return { count: { name: '', min: 1 } };
     case 'all': case 'any': return { [kind]: [{ talking: false }] };
     case 'not': return { not: { talking: false } };
+    case 'flag': return { flag: { name: '', is: '' } };
+    case 'state': return { state: { id: '', is: '' } };
+    case 'ledger': return { ledger: { tally: 'harm', min: 1 } };
+    case 'standing': return { standing: { region: doc.scene.settings?.region || 'verdant', atLeast: 3 } };
     }
     return { talking: false };
 }
@@ -277,6 +281,19 @@ export function condEditor(c, set, redraw) {
     }
     case 'not':
         args.append(h('div.nest', condEditor(v, nc => put(nc), redraw))); break;
+    case 'flag':
+        args.append(textInput(v.name, { placeholder: 'flag name', onChange: x => put({ ...v, name: x }) }), h('span.unit', 'is'),
+            textInput(v.is ?? '', { placeholder: 'set (any value)', onChange: x => put({ ...v, is: x }) })); break;
+    case 'state':
+        args.append(refInput(v.id, { onChange: x => put({ ...v, id: x }) }), h('span.unit', 'is'),
+            textInput(v.is ?? '', { placeholder: 'burned, Collapsed, revealed, open…', onChange: x => put({ ...v, is: x }) })); break;
+    case 'ledger':
+        args.append(select(v.tally, TALLIES, { onChange: x => put({ ...v, tally: x }) }), h('span.unit', '≥'),
+            numberInput(v.min ?? 1, { min: 0, max: 999, step: 0.5, onChange: x => put({ ...v, min: x }) }),
+            select(v.region || '', Object.entries(REGION_NAMES), { empty: 'this kingdom', onChange: x => put({ ...v, region: x || undefined }) })); break;
+    case 'standing':
+        args.append(select(v.region, Object.entries(REGION_NAMES), { onChange: x => put({ ...v, region: x }) }), h('span.unit', 'at least'),
+            select(String(v.atLeast ?? 2), [['0', 'the cause of all this'], ['1', 'dangerous'], ['2', 'unpredictable'], ['3', 'necessary'], ['4', 'saviour']], { onChange: x => put({ ...v, atLeast: +x }) })); break;
     }
     box.append(args);
     return box;
@@ -292,6 +309,11 @@ function newAction(kind) {
     case 'count': return { count: { name: '', add: 1 } };
     case 'saveFlag': return { saveFlag: doc.scene.id };
     case 'card': return { card: true };
+    case 'checkpoint': return { checkpoint: true };
+    case 'travel': return { travel: { scene: '', at: 'start' } };
+    case 'setFlag': return { setFlag: { name: '', value: 'true' } };
+    case 'setState': return { setState: { id: '', value: '' } };
+    case 'ledger': return { ledger: { tally: 'care', add: 1 } };
     }
     return { say: [] };
 }
@@ -326,6 +348,19 @@ export function actionEditor(a, set, redraw) {
         break;
     case 'saveFlag': args.append(textInput(v, { onChange: put }), h('small.hint', 'Saves the outcome and counters on the device under this name.')); break;
     case 'card': args.append(h('small.hint', 'Shows the end card (below).')); break;
+    case 'checkpoint': args.append(h('small.hint', 'Saves here: dying comes back to this point.')); break;
+    case 'travel':
+        args.append(textInput(v.scene, { placeholder: 'scene file name', onChange: x => put({ ...v, scene: x }) }), h('span.unit', 'at'),
+            textInput(v.at || 'start', { placeholder: 'start point name', onChange: x => put({ ...v, at: x }) })); break;
+    case 'setFlag':
+        args.append(textInput(v.name, { placeholder: 'flag name', onChange: x => put({ ...v, name: x }) }), h('span.unit', '='),
+            textInput(String(v.value ?? ''), { placeholder: 'true, a number, a word', onChange: x => put({ ...v, value: x }) })); break;
+    case 'setState':
+        args.append(refInput(v.id, { onChange: x => put({ ...v, id: x }) }), h('span.unit', '='),
+            textInput(v.value || '', { placeholder: 'burned, rebuilt… (empty clears it)', onChange: x => put({ ...v, value: x }) })); break;
+    case 'ledger':
+        args.append(select(v.tally, TALLIES, { onChange: x => put({ ...v, tally: x }) }), h('span.unit', 'add'),
+            numberInput(v.add, { min: -50, max: 50, step: 0.5, onChange: x => put({ ...v, add: x }) })); break;
     }
     box.append(args);
     return box;
@@ -499,6 +534,9 @@ export function scenePanel(root, api) {
         h('div.grid2',
             field('Powers', seg(st.profile || 'sandbox', [['story', 'The story’s'], ['sandbox', 'Everything']], { onChange: v => w(() => { st.profile = v; }) }), 'Story: what the player has learned so far. Everything: all four elements, fully trained.'),
             field('Start the story over', toggle(!!st.resetProgress, { onChange: v => w(() => { st.resetProgress = v; }) }), 'On for the first scene of the story.')),
+        h('div.grid2',
+            field('Kingdom', select(st.region || 'verdant', Object.entries(REGION_NAMES), { onChange: v => w(() => { st.region = v; }) }), 'What the player does here counts with this kingdom.'),
+            field('Remembers what happens', toggle(!!st.persistent, { onChange: v => w(() => { st.persistent = v; }) }), 'Burned, broken and revealed things stay that way in the save.')),
         field('Put disturbed props back after (s, 0 = never)', numberInput(st.resetAfter || 0, { min: 0, max: 600, step: 5, onChange: v => w(() => { st.resetAfter = v; }) }), 'A testing aid.')));
 
     root.append(h('h4.bar', `Everything in the scene `, h('small', `${sc.objects.length} objects`)));
