@@ -280,13 +280,13 @@ await page.click('.sheet .it:has-text("Prologue") button');
 await wait(2500);
 await page.click('[data-tab=story]');
 await wait(400);
-for (let i = 0; i < 13; i++) await page.click(`.step-head >> nth=${i}`);
+for (let i = 0; i < 14; i++) await page.click(`.step-head >> nth=${i}`);
 await wait(600);
 const pro = await ev(() => ({ id: __ED.doc.scene.id, drawn: __ED.view.models.size, n: __ED.doc.scene.objects.length, steps: document.querySelectorAll('.step.open').length, choices: document.querySelectorAll('.step.open .choice').length,
     kinds: [...new Set([...document.querySelectorAll('.step.open .cond-kind select')].map(s => s.value))].sort() }));
-const wanted = ['many', 'mood', 'npc', 'douseAll', 'setElement', 'hint', 'travel'];
-check(pro.id === 'veyra' && pro.drawn === pro.n && pro.steps === 13 && pro.choices >= 5 && wanted.every(k => pro.kinds.includes(k)),
-    `opens the prologue: every object drawn, all 13 steps open with their choices and new verbs editable (${JSON.stringify({ ...pro, kinds: pro.kinds.length })})`);
+const wanted = ['many', 'mood', 'npc', 'douseAll', 'setElement', 'hint', 'travel', 'surge'];
+check(pro.id === 'veyra' && pro.drawn === pro.n && pro.steps === 14 && pro.choices >= 7 && wanted.every(k => pro.kinds.includes(k)),
+    `opens the prologue: every object drawn, all 14 steps open with their choices and new verbs editable (${JSON.stringify({ ...pro, kinds: pro.kinds.length })})`);
 await shot('E7-prologue-story');
 
 check(errors.length === 0, 'no page errors' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

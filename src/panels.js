@@ -330,6 +330,7 @@ function newAction(kind) {
     case 'douseAll': return { douseAll: { by: 'environment' } };
     case 'hint': return { hint: '' };
     case 'npc': return { npc: { id: '', role: 'idle' } };
+    case 'surge': return { surge: { el: 'fire', cause: 'awakening' } };
     }
     return { say: [] };
 }
@@ -397,6 +398,12 @@ export function actionEditor(a, set, redraw) {
         }
         break;
     }
+    case 'surge':
+        args.append(select(v.el, ELEMENTS, { onChange: x => { put({ ...v, el: x }); redraw(); } }),
+            select(v.cause || 'awakening', [['awakening', 'not held against them'], ['surge', 'counted as theirs']], { onChange: x => put({ ...v, cause: x }) }));
+        if (v.el === 'fire') args.append(h('span.unit', 'lights'), refInput(v.target || '', { empty: 'whatever is nearest', onChange: x => put({ ...v, target: x || undefined }) }));
+        args.append(h('small.hint', 'The player\'s wild power goes off around them.'));
+        break;
     }
     box.append(args);
     return box;
