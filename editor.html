@@ -245,6 +245,7 @@ h6 { margin: 4px 0 0; font-size: 11px; font-weight: 800; color: var(--dim); }
     <button id="redo" class="btn icon" type="button" aria-label="Redo" title="Redo" disabled><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
     <div class="seg" id="mode" role="group" aria-label="View"><button type="button" data-mode="plan" aria-pressed="true">Plan</button><button type="button" data-mode="3d" aria-pressed="false">3D</button></div>
     <button id="snap" class="chip" type="button" aria-pressed="true">Snap</button>
+    <button id="multi" class="chip" type="button" aria-pressed="false" title="Tap to add or take out; drag on nothing to draw a box">Select several</button>
     <button id="wires-toggle" class="chip" type="button" aria-pressed="true">Wires</button>
     <button id="frame" class="btn icon" type="button" aria-label="Frame" title="Frame the scene, or the selection"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button id="play" class="btn play" type="button"><svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>Play</button>
@@ -269,6 +270,7 @@ h6 { margin: 4px 0 0; font-size: 11px; font-weight: 800; color: var(--dim); }
         <button type="button" role="tab" data-tab="logic" aria-selected="false">Logic</button>
         <button type="button" role="tab" data-tab="story" aria-selected="false">Story</button>
         <button type="button" role="tab" data-tab="scene" aria-selected="false">Scene</button>
+        <button type="button" role="tab" data-tab="land" aria-selected="false">Land</button>
         <button type="button" role="tab" data-tab="check" id="tab-check" aria-selected="false">Check<span class="count"></span></button>
       </nav>
       <div id="panel-body"></div>

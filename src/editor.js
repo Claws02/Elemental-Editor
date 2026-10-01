@@ -8,8 +8,8 @@ import { validateScene } from '../game/src/scene/validate.js';
 import { startGame } from '../game/src/Game.js';
 import { View } from './view.js';
 import { h, $, toast, sheet, ask } from './ui.js';
-import { doc, on, changed, load, json, dirty, undo, redo, canUndo, canRedo, addObject, select as selectObj, selected, duplicate, remove, readLocal, checkpoint, normalizeScript } from './doc.js';
-import { inspectPanel, logicPanel, storyPanel, scenePanel, checkPanel, isQuiet, offerPick, stopPicking, edit } from './panels.js';
+import { doc, on, changed, load, json, dirty, undo, redo, canUndo, canRedo, addObject, select as selectObj, selected, duplicate, remove, readLocal, checkpoint, normalizeScript, selection, duplicateMany, removeMany, byId } from './doc.js';
+import { inspectPanel, logicPanel, storyPanel, scenePanel, landPanel, checkPanel, isQuiet, offerPick, stopPicking, edit } from './panels.js';
 import { initStore, hasStore, saveScene, listSaved, loadSaved, listVersions } from './store.js';
 
 // Put in the page by scripts/build.js: the game's own scenes, and which game commit the models came from.
@@ -48,7 +48,7 @@ function onChange(what) {
     $('redo').disabled = !canRedo();
     $('scene-name').textContent = doc.scene.name || doc.scene.id;
     if (isQuiet() && what !== 'selection') return;
-    if (what === 'selection' && tabNow !== 'inspect' && doc.sel && !$('panel').classList.contains('pinned')) showTab('inspect');
+    if (what === 'selection' && tabNow !== 'inspect' && tabNow !== 'land' && doc.sel && !$('panel').classList.contains('pinned')) showTab('inspect');
     else renderTab();
 }
 
@@ -83,9 +83,10 @@ function livePosition(o) {
 
 // ---- panels ----------------------------------------------------------------------------------------
 
-const TABS = { inspect: inspectPanel, logic: logicPanel, story: storyPanel, scene: scenePanel, check: checkPanel };
+const TABS = { inspect: inspectPanel, logic: logicPanel, story: storyPanel, scene: scenePanel, land: landPanel, check: checkPanel };
 
 function showTab(t) {
+    if (t !== 'land') view.setBrush(null);          // the brushes work only while the Land tab is open
     tabNow = t;
     for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === t));
     document.body.classList.add('panel-open');
@@ -155,6 +156,11 @@ function bindBar() {
         for (const x of document.querySelectorAll('#mode button')) x.setAttribute('aria-pressed', String(x === b));
         view.setMode(b.dataset.mode);
     };
+    $('multi').onclick = () => {
+        view.multi = !view.multi;
+        $('multi').setAttribute('aria-pressed', String(view.multi));
+        toast(view.multi ? 'Tap things to add them; drag on nothing to draw a box round more.' : 'One at a time.');
+    };
     $('snap').onclick = () => { view.snap = !view.snap; $('snap').setAttribute('aria-pressed', String(view.snap)); toast(view.snap ? 'Snapping to half metres and 15°.' : 'Free placement.'); };
     $('wires-toggle').onclick = () => { view.show.wires = !view.show.wires; $('wires-toggle').setAttribute('aria-pressed', String(view.show.wires)); view.sync('overlay'); };
     $('frame').onclick = () => view.frame(doc.sel || null);
@@ -171,7 +177,17 @@ function bindBar() {
         if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); (e.shiftKey ? redo : undo)(); return; }
         if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveSheet(); return; }
         if (typing || $('play-root')) return;
-        const o = selected();
+        const o = selected(), many = doc.multi.length ? selection().map(byId).filter(Boolean) : null;
+        if (many) {
+            if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeMany(selection()); return; }
+            if (e.key.toLowerCase() === 'd') { duplicateMany(selection()); return; }
+            if (e.key.startsWith('Arrow')) {
+                e.preventDefault();
+                const s = e.shiftKey ? 1 : 0.1, dx = e.key === 'ArrowLeft' ? -s : e.key === 'ArrowRight' ? s : 0, dz = e.key === 'ArrowUp' ? -s : e.key === 'ArrowDown' ? s : 0;
+                edit(() => { for (const q of many) { q.x = +(q.x + dx).toFixed(2); q.z = +(q.z + dz).toFixed(2); } }, 'objects', true);
+                return;
+            }
+        }
         if ((e.key === 'Delete' || e.key === 'Backspace') && o) { e.preventDefault(); remove(o.id); }
         else if (e.key.toLowerCase() === 'd' && o) duplicate(o.id);
         else if (e.key.toLowerCase() === 'f') view.frame(doc.sel || null);
@@ -312,7 +328,10 @@ function helpSheet() {
             ...row('Add', 'Tap something in the library. It lands in the middle of the view, selected.'),
             ...row('Move', 'Drag it with one finger. Snap keeps it on half metres and 15° turns.'),
             ...row('Turn', 'Drag the gold handle. It marks the front.'),
-            ...row('Height', 'Inspect → Height, e.g. an upper floor at 3.'),
+            ...row('Height', 'Inspect → Height, e.g. an upper floor at 3. On land, it is above the ground.'),
+            ...row('Several', 'Select several (the bar): tap to add or take out, drag on nothing to draw a box; drag one to move them all.'),
+            ...row('Land', 'Land tab: make the scene land, then raise, lower, smooth, flatten or paint it with one finger.'),
+            ...row('Routes', 'A character set to patrol shows its route as gold points: drag them, or add them in Inspect.'),
             ...row('Look around', 'Plan is straight down; 3D orbits. Drag empty ground; pinch to zoom; two fingers pan.'),
             ...row('Puzzles', 'Logic: a wire watches signals (a plate is weighted) and makes things act (a gate opens). Blue dashes in the view show wires.'),
             ...row('Story', 'Steps of lines, an objective, and endings that say what the player must do.'),

@@ -1,5 +1,5 @@
 // ============================================================
-// PANELS — Inspect, Logic, Story, Scene, Check
+// PANELS — Inspect, Logic, Story, Scene, Land, Check
 // ============================================================
 //
 // Each panel draws from doc.scene and writes back through `edit()`, which
@@ -8,11 +8,12 @@
 // removing rows does.
 // ============================================================
 
-import { TYPES, GROUPS, CONDITIONS, ACTIONS, ELEMENTS, TRACKS, TALLIES, REACTION_EVENTS, GROUND_STYLES, PROFILES, REGION_NAMES, signalsOf, actionsOf } from '../game/src/scene/schema.js';
+import { TYPES, GROUPS, CONDITIONS, ACTIONS, ELEMENTS, TRACKS, TALLIES, REACTION_EVENTS, GROUND_STYLES, PROFILES, REGION_NAMES, MOOD_NAMES, signalsOf, actionsOf } from '../game/src/scene/schema.js';
+import { SURFACES, blankTerrain } from '../game/src/world/Terrain.js';
 import { PREFABS, expandPrefab } from '../game/src/data/prefabs.js';
-import { withDefaults } from '../game/src/scene/Catalog.js';
+import { withDefaults, parseRoute } from '../game/src/scene/Catalog.js';
 import { h, $, field, numberInput, textInput, linesInput, select, toggle, seg, ask, toast, fmt } from './ui.js';
-import { doc, changed, checkpoint, byId, selected, select as selectObj, duplicate, remove, rename, usesOf, uniqueId, normalizeScript } from './doc.js';
+import { doc, changed, checkpoint, byId, selected, select as selectObj, duplicate, remove, rename, usesOf, uniqueId, normalizeScript, selection, duplicateMany, removeMany } from './doc.js';
 
 let quiet = false;        // a panel is writing: don't redraw panels for it
 export const isQuiet = () => quiet;
@@ -77,6 +78,7 @@ const xBtn = (label, fn) => h('button.btn.small.ghost.x', { type: 'button', 'ari
 export function inspectPanel(root, api) {
     const o = selected();
     root.replaceChildren();
+    if (doc.multi.length) { multiPanel(root, api); return; }
     if (!o) {
         const counts = {};
         for (const x of doc.scene.objects) counts[TYPES[x.type]?.group || 'Other'] = (counts[TYPES[x.type]?.group || 'Other'] || 0) + 1;
@@ -132,6 +134,7 @@ export function inspectPanel(root, api) {
             sigs.length ? h('p.chips', h('b', 'Signals '), ...sigs.map(s => h('span.chip.sig', s))) : null,
             acts.length ? h('p.chips', h('b', 'Actions '), ...acts.map(s => h('span.chip.act', s))) : null));
     }
+    if (o.type === 'npc' && o.role === 'patrol') root.append(routeEditor(o, api, () => inspectPanel(root, api)));
     const uses = usesOf(o.id);
     if (uses.length) root.append(h('p.note', 'Used by ', uses.join(', '), '.'));
 
@@ -150,6 +153,68 @@ export function inspectPanel(root, api) {
         },
     }, 'Delete'));
     root.append(acts2);
+}
+
+// Several selected: what can be done to all of them at once.
+function multiPanel(root, api) {
+    const ids = selection(), objs = ids.map(byId).filter(Boolean);
+    const turnAll = d => edit(() => {
+        // Turn the group about its middle, each thing with it.
+        const cx = objs.reduce((a, o) => a + o.x, 0) / objs.length, cz = objs.reduce((a, o) => a + o.z, 0) / objs.length;
+        const c = Math.cos(d), sn = Math.sin(d);
+        for (const o of objs) {
+            const x = o.x - cx, z = o.z - cz;
+            o.x = Math.round((cx + x * c + z * sn) * 100) / 100; o.z = Math.round((cz - x * sn + z * c) * 100) / 100;
+            o.rotY = Math.round(((o.rotY || 0) + d) * 1e4) / 1e4;
+        }
+    }, 'objects', true);
+    const raise = d => edit(() => { for (const o of objs) o.y = Math.round(((o.y || 0) + d) * 100) / 100; }, 'objects', true);
+    root.append(
+        h('div.ins-head', h('span.kind', `${objs.length} selected`), h('p.note', 'Drag any of them to move them all. With Select several on, tap one to take it out, or draw a box round more.')),
+        h('section.sec', h('h4', 'All of them'),
+            h('div.acts',
+                h('button.btn', { type: 'button', on: { click: () => turnAll(-Math.PI / 12) } }, '⟲ 15°'),
+                h('button.btn', { type: 'button', on: { click: () => turnAll(Math.PI / 12) } }, '⟳ 15°'),
+                h('button.btn', { type: 'button', on: { click: () => raise(-0.5) } }, 'Down 0.5 m'),
+                h('button.btn', { type: 'button', on: { click: () => raise(0.5) } }, 'Up 0.5 m'))),
+        h('section.sec', h('h4', 'Selected'), h('div.outline', ...objs.map(o => h('button.oitem' + (o.id === doc.sel ? '.on' : ''), {
+            type: 'button', on: { click: () => { selectObj(o.id); api.view.frame(o.id); } },
+        }, h('b', o.id), h('span', typeLabel(o.type)))))),
+        h('div.acts',
+            h('button.btn', { type: 'button', on: { click: () => { selectObj(null); } } }, 'Clear'),
+            h('button.btn', { type: 'button', on: { click: () => duplicateMany(ids) } }, 'Duplicate all'),
+            h('button.btn.danger', {
+                type: 'button', on: {
+                    click: async () => {
+                        const used = ids.filter(id => usesOf(id).length);
+                        if (used.length && !await ask(`Delete ${ids.length} things?`, `${used.join(', ')} ${used.length > 1 ? 'are' : 'is'} used by wires or the story. Those references will point at nothing.`, 'Delete', 'Keep them', true)) return;
+                        removeMany(ids);
+                    },
+                },
+            }, 'Delete all')));
+}
+
+// A patrol route: the points the character walks, in order, round and back to the first.
+function routeEditor(o, api, redraw) {
+    const pts = parseRoute(o.route);
+    const write = list => edit(() => { o.route = list.map(p => `${+p.x.toFixed(2)},${+p.z.toFixed(2)}`).join('; '); }, 'object:' + o.id, true);
+    const after = () => {
+        const last = pts[pts.length - 1] || { x: o.x, z: o.z }, prev = pts[pts.length - 2] || { x: o.x, z: o.z - 1 };
+        const dx = last.x - prev.x, dz = last.z - prev.z, d = Math.hypot(dx, dz) || 1;
+        return { x: Math.round((last.x + dx / d * 4) * 2) / 2, z: Math.round((last.z + dz / d * 4) * 2) / 2 };
+    };
+    const rows = pts.map((p, i) => h('div.row',
+        h('span.unit', `${i + 1}`),
+        numberInput(p.x, { step: 0.5, onChange: v => { pts[i].x = v; write(pts); } }),
+        numberInput(p.z, { step: 0.5, onChange: v => { pts[i].z = v; write(pts); } }),
+        xBtn('Remove point ' + (i + 1), () => { pts.splice(i, 1); write(pts); redraw(); })));
+    return h('section.sec', h('h4', 'Route'),
+        h('p.note', pts.length ? 'Gold points in the view: drag them. The character walks them in order and back to the first.' : 'No points yet: the character stands still.'),
+        h('div.rows', ...rows),
+        h('div.acts',
+            h('button.btn.small', { type: 'button', on: { click: () => { pts.push(after()); write(pts); redraw(); } } }, '+ Point'),
+            h('button.btn.small', { type: 'button', on: { click: () => { const c = api.view.centre(); pts.push({ x: Math.round(c.x * 2) / 2, z: Math.round(c.z * 2) / 2 }); write(pts); redraw(); } } }, '+ Point at the view’s middle'),
+            pts.length ? h('button.btn.small.ghost', { type: 'button', on: { click: () => { write([]); redraw(); } } }, 'Clear') : null));
 }
 
 function breakApart(o) {
@@ -384,7 +449,7 @@ export function actionEditor(a, set, redraw) {
         args.append(select(v.el, ELEMENTS, { onChange: x => put({ ...v, el: x }) }), h('span.unit', 'is'),
             select(v.state, [['locked', 'locked'], ['wild', 'wild'], ['trained', 'trained']], { onChange: x => put({ ...v, state: x }) })); break;
     case 'mood':
-        args.append(select(v.name, [['day', 'day'], ['dusk', 'dusk'], ['night', 'night']], { onChange: x => put({ ...v, name: x }) }), h('span.unit', 'over'),
+        args.append(select(v.name, MOOD_NAMES, { onChange: x => put({ ...v, name: x }) }), h('span.unit', 'over'),
             numberInput(v.secs ?? 0, { min: 0, max: 120, step: 1, onChange: x => put({ ...v, secs: x }) }), h('span.unit', 's')); break;
     case 'douseAll':
         args.append(select(v?.by || 'environment', [['environment', 'nobody (it goes out)'], ['cael', 'Cael'], ['villager', 'the villagers'], ['player', 'the player']], { onChange: x => put({ by: x }) })); break;
@@ -593,9 +658,14 @@ export function scenePanel(root, api) {
         h('div.grid2',
             field('Scene name', textInput(sc.name, { onChange: v => w(() => { sc.name = v; }) })),
             field('File name', textInput(sc.id, { onChange: v => { const id = v.trim().replace(/[^\w-]/g, '-'); if (!id) return; w(() => { sc.id = id; }); } }), `Plays in the game at ?scene=${sc.id}`)),
+        st.terrain
+            ? h('p.note', `The ground is land, ${st.terrain.size} m across: shape and paint it in the Land tab.`)
+            : h('div.grid2',
+                field('Ground', select(st.ground.style, GROUND_STYLES, { onChange: v => w(() => { st.ground.style = v; }) })),
+                field('Ground size (m from centre)', numberInput(st.ground.half, { min: 6, max: 120, step: 2, onChange: v => w(() => { st.ground.half = v; }) }))),
         h('div.grid2',
-            field('Ground', select(st.ground.style, GROUND_STYLES, { onChange: v => w(() => { st.ground.style = v; }) })),
-            field('Ground size (m from centre)', numberInput(st.ground.half, { min: 6, max: 120, step: 2, onChange: v => w(() => { st.ground.half = v; }) }))),
+            field('Light', select(st.mood || 'day', MOOD_NAMES, { onChange: v => w(() => { st.mood = v; }) }), 'How the scene opens; the story can change it.'),
+            field('See this far (m)', numberInput(st.view?.far || (st.terrain ? 170 : 95), { min: 40, max: 300, step: 5, onChange: v => w(() => { st.view = { ...(st.view || {}), far: v }; }) }), 'Further shows more and costs more on a phone.')),
         h('div.grid2',
             field('Powers', seg(st.profile || 'sandbox', [['story', 'The story’s'], ['sandbox', 'Everything']], { onChange: v => w(() => { st.profile = v; }) }), 'Story: what the player has learned so far. Everything: all four elements, fully trained.'),
             field('Start the story over', toggle(!!st.resetProgress, { onChange: v => w(() => { st.resetProgress = v; }) }), 'On for the first scene of the story.')),
@@ -624,6 +694,51 @@ export function scenePanel(root, api) {
     };
     list();
     root.append(q, out);
+}
+
+// ==== LAND (terrain brushes) =============================================================================
+
+const BRUSHES = [['off', 'Off'], ['raise', 'Raise'], ['lower', 'Lower'], ['smooth', 'Smooth'], ['flatten', 'Flatten'], ['paint', 'Paint']];
+export const brushState = { kind: 'off', size: 10, strength: 0.6, surface: 'dirt' };
+const applyBrush = view => view.setBrush(brushState.kind === 'off' ? null : { ...brushState });
+
+export function landPanel(root, api) {
+    const redraw = () => landPanel(root, api);
+    root.replaceChildren();
+    const st = doc.scene.settings;
+    if (!st.terrain) {
+        api.view.setBrush(null);
+        let size = 120, surface = 'grass';
+        root.append(h('div.empty-state', h('h3', 'Flat ground'), h('p', 'Make this scene land and you can raise hills, cut valleys, smooth, flatten and paint it. Things already placed stand on it where they are.')),
+            h('section.sec', h('div.grid2',
+                field('Across (m)', select(String(size), [['60', '60 m'], ['120', '120 m'], ['240', '240 m (a region)']], { onChange: v => { size = +v; } })),
+                field('Covered in', select(surface, SURFACES.map(x => [x.key, x.name]), { onChange: v => { surface = v; } }))),
+                h('div.acts', h('button.btn.primary', { type: 'button', on: { click: () => { edit(() => { st.terrain = blankTerrain(size, 2, surface); st.view ||= { far: size >= 200 ? 170 : 120 }; }, 'settings', true); api.view.frame(); redraw(); } } }, 'Make it land'))));
+        return;
+    }
+    applyBrush(api.view);
+    const set = (k, v, again = false) => { brushState[k] = v; applyBrush(api.view); if (again) redraw(); };
+    root.append(
+        h('section.sec', h('h4', 'Brush'),
+            seg(brushState.kind, BRUSHES, { onChange: v => set('kind', v, true) }),
+            h('p.note', brushState.kind === 'off' ? 'Choose a brush, then drag on the land with one finger. Two fingers still move the view.'
+                : { raise: 'Drag to build the ground up.', lower: 'Drag to dig it down.', smooth: 'Drag to wear bumps and steps away.', flatten: 'Drag to level the ground to the height where you first touched.', paint: 'Drag to paint the surface.' }[brushState.kind] + ' Each stroke is one undo.'),
+            h('div.grid2',
+                field('Size (m)', numberInput(brushState.size, { min: 2, max: 60, step: 1, onChange: v => set('size', v) })),
+                field('Strength', numberInput(brushState.strength, { min: 0.1, max: 2, step: 0.1, onChange: v => set('strength', v) }))),
+            brushState.kind === 'paint' ? field('Surface', select(brushState.surface, SURFACES.map(x => [x.key, x.name]), { onChange: v => set('surface', v) })) : null),
+        h('section.sec', h('h4', 'The land'),
+            h('p.note', `${st.terrain.size} m across, a point every ${st.terrain.cell} m. Things stand on it: their Height is above the ground. Water sits at its own level.`),
+            h('div.acts', h('button.btn.danger', {
+                type: 'button', on: {
+                    click: async () => {
+                        if (!await ask('Flatten it all away?', 'The scene goes back to flat ground. Undo brings the land back.', 'Make it flat', 'Keep the land', true)) return;
+                        edit(() => { delete st.terrain; }, 'settings', true);
+                        brushState.kind = 'off';
+                        redraw();
+                    },
+                },
+            }, 'Back to flat ground'))));
 }
 
 // ==== CHECK =============================================================================================

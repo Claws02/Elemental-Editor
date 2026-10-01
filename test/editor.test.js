@@ -90,7 +90,7 @@ await page.waitForFunction(() => window.__ED?.doc?.scene, null, { timeout: 30000
 await helpers();
 await wait(1500);
 const boot = await ev(() => ({ id: __ED.doc.scene.id, n: __ED.doc.scene.objects.length, drawn: __ED.view.models.size, scenes: Object.keys(__ED.GAME_SCENES) }));
-check(boot.id === 'lesson1' && boot.drawn === boot.n && boot.n === 38, `opens on Lesson I, every object drawn with the game's models (${JSON.stringify(boot)})`);
+check(boot.id === 'lesson1' && boot.drawn === boot.n && boot.n === 39, `opens on Lesson I, every object drawn with the game's models (${JSON.stringify(boot)})`);
 check(['courtyard', 'lesson1', 'village'].every(s => boot.scenes.includes(s)), `carries the game's scenes (${boot.scenes.join(', ')})`);
 await wait(1200);
 const lib = await ev(() => { const c = [...document.querySelectorAll('.lcard')]; return { n: c.length, pics: c.filter(x => x.querySelector('.thumb').style.backgroundImage).length }; });
@@ -288,6 +288,118 @@ const wanted = ['many', 'mood', 'npc', 'douseAll', 'setElement', 'hint', 'travel
 check(pro.id === 'veyra' && pro.drawn === pro.n && pro.steps === 14 && pro.choices >= 7 && wanted.every(k => pro.kinds.includes(k)),
     `opens the prologue: every object drawn, all 14 steps open with their choices and new verbs editable (${JSON.stringify({ ...pro, kinds: pro.kinds.length })})`);
 await shot('E7-prologue-story');
+
+// ---- 14. phase 5: land, several at once, routes ------------------------------------------------------------------------
+await helpers();
+await page.click('#more');
+await wait(700);
+await page.click('.sheet .it:has-text("Saltmere Coast") button');
+await wait(3000);
+const land = await ev(() => {
+    const V = __ED.view, o = __ED.doc.scene.objects.find(q => q.id === 'Lanthe_Council'), m = V.models.get('Lanthe_Council');
+    return { id: __ED.doc.scene.id, terrain: !!V.terrain, chunks: V.terrain?.chunks.size, drawn: V.models.size, n: __ED.doc.scene.objects.length, seated: +(m.root.position.y - V.groundY(o.x, o.z)).toFixed(2) };
+});
+check(land.terrain && land.chunks >= 16 && land.drawn === land.n && Math.abs(land.seated) < 0.05, `a region opens on its land, everything standing on the ground (${JSON.stringify(land)})`);
+// A raise stroke where nothing stands, then paint, then undo.
+await page.click('[data-tab=land]');
+await wait(400);
+const look = (cx, cz, ppm = 8) => ev(([cx, cz, ppm]) => { Object.assign(__ED.view.plan, { cx, cz, ppm }); __ED.view._cams(); __ED.view.redraw(); }, [cx, cz, ppm]);
+await look(-80, -80);
+await page.click('.sec .seg button:has-text("Raise")');
+await wait(200);
+const h0 = await ev(() => __ED.view.groundY(-80, -80));
+await ev(async () => { const a = __at(-86, 0, -80), b = __at(-74, 0, -80); await __drag(1, a, b, 10); });
+await wait(400);
+const raised = await ev(() => ({ h: +__ED.view.groundY(-80, -80).toFixed(2), saved: __ED.view.terrainKey.includes(__ED.doc.scene.settings.terrain.heights), brush: __ED.view.brush?.kind }));
+check(raised.h > h0 + 0.4 && raised.saved && raised.brush === 'raise', `the Raise brush builds the land up under a stroke, and it goes into the scene (${h0.toFixed(2)} → ${JSON.stringify(raised)})`);
+await page.click('#undo');
+await wait(500);
+const landBack = await ev(() => +__ED.view.groundY(-80, -80).toFixed(2));
+check(Math.abs(landBack - h0) < 0.02, `one undo takes the whole stroke back (${landBack} vs ${h0.toFixed(2)})`);
+await page.click('.sec .seg button:has-text("Paint")');
+await wait(300);
+await page.selectOption('.sec select', 'snow');
+await ev(async () => { const a = __at(-84, 0, -80), b = __at(-76, 0, -80); await __drag(1, a, b, 6); });
+await wait(400);
+const painted = await ev(() => __ED.view.terrain.surface(-80, -80).key);
+check(painted === 'snow', `the Paint brush paints the surface (${painted})`);
+// Flatten round a house: it stays standing on the ground.
+await page.click('.sec .seg button:has-text("Flatten")');
+await ev(() => { const o = __ED.doc.scene.objects.find(q => q.id === 'Lanthe_House_1'); Object.assign(__ED.view.plan, { cx: o.x, cz: o.z, ppm: 10 }); __ED.view._cams(); });
+const follows = await ev(async () => {
+    const o = __ED.doc.scene.objects.find(q => q.id === 'Lanthe_House_1'), V = __ED.view;
+    await __drag(1, __at(o.x - 6, 0, o.z + 4), __at(o.x + 6, 0, o.z + 4), 10);
+    return +(V.models.get(o.id).root.position.y - V.groundY(o.x, o.z)).toFixed(2);
+});
+check(Math.abs(follows) < 0.05, `things on the land follow it as it changes (${follows})`);
+await shot('E7-land');
+// Leaving the Land tab puts the brush down.
+await page.click('[data-tab=scene]');
+await wait(300);
+const moods = await ev(() => [...document.querySelectorAll('#panel-body select')].map(s => [...s.options].map(o => o.value)).find(v => v.includes('ember')) || []);
+check(!(await ev(() => !!__ED.view.brush)) && ['day', 'dusk', 'night', 'ember', 'sea', 'peaks', 'glare'].every(m => moods.includes(m)), `the brush is put down outside the Land tab; the Scene tab offers every light (${moods.join(', ')})`);
+
+// The sea under everything: a drag on it pans, a tap selects it.
+await look(80, 60, 6);
+const sea = await ev(async () => {
+    const V = __ED.view, s = __at(80, 1, 60), cx = V.plan.cx;
+    await __drag(1, s, { x: s.x + 60, y: s.y }, 6);
+    const panned = +(cx - V.plan.cx).toFixed(1), selAfterDrag = __ED.doc.sel;
+    __t('pointerdown', 1, s.x, s.y); __t('pointerup', 1, s.x, s.y);
+    return { panned, selAfterDrag, tapped: __ED.doc.sel };
+});
+check(sea.panned > 3 && sea.selAfterDrag !== 'Sea' && sea.tapped === 'Sea', `a drag across the sea pans the view; a tap selects the sea (${JSON.stringify(sea)})`);
+
+// Select several: a box round the council island's lamps, then drag them all.
+await page.keyboard.press('Escape');
+await look(-10, 30, 9);
+await page.click('#multi');
+await wait(200);
+await ev(async () => { await __drag(1, __at(-21, 0, 19), __at(1, 0, 41), 10); });
+await wait(400);
+const boxed = await ev(() => ({ n: [__ED.doc.sel, ...__ED.doc.multi].filter(Boolean).length, lamps: __ED.doc.multi.concat(__ED.doc.sel).filter(id => /Lanthe_Lamp/.test(id)).length, head: document.querySelector('#panel-body .kind')?.textContent }));
+check(boxed.n >= 4 && boxed.lamps >= 4 && /selected/.test(boxed.head || ''), `Select several: a box selects everything inside it (${JSON.stringify(boxed)})`);
+const start5 = await ev(() => Object.fromEntries([__ED.doc.sel, ...__ED.doc.multi].map(id => { const o = __ED.doc.scene.objects.find(q => q.id === id); return [id, [o.x, o.z]]; })));
+await ev(async () => { const o = __ED.doc.scene.objects.find(q => q.id === 'Lanthe_Lamp_1'); await __drag(1, __at(o.x, 0, o.z), __at(o.x + 3, 0, o.z), 8); });
+await wait(400);
+const shifted5 = await ev(b => Object.entries(b).map(([id, [x, z]]) => { const o = __ED.doc.scene.objects.find(q => q.id === id); return [+(o.x - x).toFixed(2), +(o.z - z).toFixed(2)]; }), start5);
+check(shifted5.length >= 4 && shifted5.every(([dx, dz]) => Math.abs(dx - shifted5[0][0]) < 0.01 && Math.abs(dz - shifted5[0][1]) < 0.01) && Math.abs(shifted5[0][0]) >= 2.5, `dragging one moves them all together (${JSON.stringify(shifted5.slice(0, 3))}…)`);
+const nBefore = await ev(() => __ED.doc.scene.objects.length);
+await page.click('#panel-body button:has-text("Delete all")');
+await wait(400);
+const nAfter = await ev(() => __ED.doc.scene.objects.length);
+await page.click('#undo');
+await wait(400);
+const nBack = await ev(() => __ED.doc.scene.objects.length);
+check(nAfter === nBefore - shifted5.length && nBack === nBefore, `Delete all, and one undo brings them all back (${nBefore} → ${nAfter} → ${nBack})`);
+await page.click('#multi');
+
+// A patrol route: the points show, and drag.
+await ev(() => { __ED.doc.sel = null; const o = __ED.doc.scene.objects.find(q => q.id === 'Lanthe_Folk_1'); Object.assign(__ED.view.plan, { cx: o.x, cz: o.z, ppm: 14 }); __ED.view._cams(); });
+await ev(() => { const o = __ED.doc.scene.objects.find(q => q.id === 'Lanthe_Folk_1'); const s = __at(o.x, __ED.view.groundY(o.x, o.z) + 1, o.z); __t('pointerdown', 1, s.x, s.y); __t('pointerup', 1, s.x, s.y); });
+await wait(500);
+const r0 = await ev(() => ({ sel: __ED.doc.sel, route: __ED.view.route(), rows: document.querySelectorAll('#panel-body .sec .rows .row').length }));
+const p1 = r0.route?.[1];
+if (p1) await ev(async p => { await __drag(1, __at(p.x, __ED.view.groundY(p.x, p.z) + 0.3, p.z), __at(p.x + 2, __ED.view.groundY(p.x, p.z) + 0.3, p.z + 1), 8); }, p1);
+await wait(400);
+await page.click('#panel-body button:has-text("+ Point")');
+await wait(400);
+const r1 = await ev(() => ({ route: __ED.view.route(), text: __ED.doc.scene.objects.find(q => q.id === 'Lanthe_Folk_1').route }));
+check(r0.sel === 'Lanthe_Folk_1' && r0.route.length === 4 && r0.rows === 4 && r1.route.length === 5 && Math.abs(r1.route[1].x - (p1.x + 2)) < 0.6 && Math.abs(r1.route[1].z - (p1.z + 1)) < 0.6,
+    `a patrolling character's route: its points listed and drawn, one dragged, one added (${JSON.stringify({ start5: r0.route?.length, after: r1.route.length, text: r1.text })})`);
+await shot('E8-route');
+
+// A flat scene becomes land.
+await page.click('#more');
+await wait(700);
+await page.click('.sheet .it:has-text("Empty field") button');
+await wait(1200);
+await page.click('[data-tab=land]');
+await wait(300);
+await page.click('#panel-body button:has-text("Make it land")');
+await wait(1200);
+const madeLand = await ev(() => ({ size: __ED.doc.scene.settings.terrain?.size, drawn: !!__ED.view.terrain, errs: __ED.validate().filter(p => p.level === 'error').length }));
+check(madeLand.size === 120 && madeLand.drawn && madeLand.errs === 0, `a flat scene becomes land, and the game's checks pass it (${JSON.stringify(madeLand)})`);
 
 check(errors.length === 0, 'no page errors' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
 await browser.close();

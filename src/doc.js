@@ -17,7 +17,8 @@ const MAX_UNDO = 120;
 
 export const doc = {
     scene: null,
-    sel: null,              // selected object id
+    sel: null,              // selected object id (the one the inspector shows)
+    multi: [],              // and the others selected with it (Select several)
     saved: '',              // JSON of the scene as last saved for Claude (for "unsaved changes")
     savedAt: null,
     source: '',             // where it came from: 'game', 'saved', 'new', 'device'
@@ -41,6 +42,7 @@ export function load(scene, { source = 'game', saved = null, savedAt = null } = 
     doc.scene.settings ||= { ground: { half: 20, style: 'grass' }, profile: 'sandbox' };
     if (doc.scene.script) normalizeScript(doc.scene.script);
     doc.sel = null;
+    doc.multi = [];
     doc.source = source;
     doc.saved = saved ?? '';
     doc.savedAt = savedAt;
@@ -82,6 +84,7 @@ function _swap(from, to) {
     const s = JSON.parse(from.pop());
     doc.scene = s.scene;
     doc.sel = s.sel && byId(s.sel) ? s.sel : null;
+    doc.multi = doc.multi.filter(id => byId(id) && id !== doc.sel);
     changed('all');
 }
 
@@ -91,8 +94,60 @@ export const byId = id => doc.scene.objects.find(o => o.id === id) || null;
 export const selected = () => (doc.sel ? byId(doc.sel) : null);
 
 export function select(id) {
-    if (doc.sel === id) return;
+    if (doc.sel === id && !doc.multi.length) return;
     doc.sel = id;
+    doc.multi = [];
+    changed('selection');
+}
+
+/** Everything selected: the inspected one first. */
+export const selection = () => (doc.sel ? [doc.sel, ...doc.multi] : [...doc.multi]);
+export const isSelected = id => doc.sel === id || doc.multi.includes(id);
+
+/** Select several: add `id`, or take it out if it's in. */
+export function toggleSelect(id) {
+    if (isSelected(id)) {
+        if (doc.sel === id) { doc.sel = doc.multi.shift() || null; }
+        else doc.multi = doc.multi.filter(x => x !== id);
+    } else if (!doc.sel) doc.sel = id;
+    else doc.multi.push(id);
+    changed('selection');
+}
+
+/** Select exactly these (a box drawn in the view). */
+export function selectMany(ids, add = false) {
+    const all = [...new Set([...(add ? selection() : []), ...ids])];
+    doc.sel = all[0] || null;
+    doc.multi = all.slice(1);
+    changed('selection');
+}
+
+/** Duplicate everything selected, the copies selected after. */
+export function duplicateMany(ids) {
+    const src = ids.map(byId).filter(o => o && !TYPES[o.type]?.single);
+    if (!src.length) return [];
+    checkpoint();
+    const made = src.map(o => {
+        const c = JSON.parse(JSON.stringify(o));
+        c.id = uniqueId(o.id);
+        c.x = round(o.x + 1.5); c.z = round(o.z + 1.5);
+        doc.scene.objects.push(c);
+        return c.id;
+    });
+    doc.sel = made[0]; doc.multi = made.slice(1);
+    changed('objects');
+    changed('selection');
+    return made;
+}
+
+/** Delete everything selected, in one undo. */
+export function removeMany(ids) {
+    const gone = new Set(ids);
+    if (!gone.size) return;
+    checkpoint();
+    doc.scene.objects = doc.scene.objects.filter(o => !gone.has(o.id));
+    doc.sel = null; doc.multi = [];
+    changed('objects');
     changed('selection');
 }
 
@@ -127,6 +182,7 @@ export function addObject(type, at, extra = {}) {
     if (type === 'npc') o.name = o.id.replace(/_\d+$/, '') === 'Character' ? 'Villager' : o.name;
     doc.scene.objects.push(o);
     doc.sel = o.id;
+    doc.multi = [];
     changed('objects');
     changed('selection');
     return o;
@@ -152,6 +208,7 @@ export function remove(id) {
     checkpoint();
     doc.scene.objects.splice(i, 1);
     if (doc.sel === id) doc.sel = null;
+    doc.multi = doc.multi.filter(x => x !== id);
     changed('objects');
     changed('selection');
 }
@@ -165,6 +222,7 @@ export function rename(oldId, newId) {
     byId(oldId).id = newId;
     replaceRefs(doc.scene, oldId, newId);
     if (doc.sel === oldId) doc.sel = newId;
+    doc.multi = doc.multi.map(x => (x === oldId ? newId : x));
     changed('all');
     return true;
 }

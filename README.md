@@ -12,7 +12,10 @@ Everything in a scene file (the game's `docs/SCENES.md`):
 - **Properties.** Size, height, style, variant, whether it starts hidden, what a plate's chain runs to, a character's name and look.
 - **Puzzle logic** (Logic). Wires: *when these signals hold* (a plate is weighted, a barricade is broken, the player entered a zone), *make these objects act* (raise, open, close, reveal).
 - **Story** (Story). The speaker, the opening view, saved flags; steps with lines, an objective, a marker, what to watch for while waiting, and endings that decide what happens next; reactions (Cael answering fire, a stone too heavy); the end card.
-- **Scene settings** (Scene). Name, file name, ground, which powers the player has, the testing reset.
+- **Scene settings** (Scene). Name, file name, ground, the light it opens in (day, dusk, night, ember, sea, peaks, glare), how far you see, which powers the player has, the testing reset.
+- **Land** (Land). Make a scene land (60, 120 or 240 m), then shape it with one finger: Raise, Lower, Smooth, Flatten (to where you first touched), Paint (twelve surfaces), with size and strength; each stroke is one undo. Things stand on the land and follow it; water keeps its own level.
+- **Several at once.** *Select several* in the bar: tap to add or take out, drag on nothing to draw a box; drag one to move them all; turn, raise, duplicate or delete them together.
+- **Patrol routes.** A character set to patrol shows its route as gold points in the view: drag them, or add, edit and remove them in Inspect.
 - **Check.** The game's own scene checks, live, with a tap to jump to the problem.
 
 ## Using it
@@ -81,7 +84,6 @@ Then republish `dist/elemental-editor.html` to the editor's page. Saved scenes a
 
 ## Not in this version
 
-- One object selected at a time (no box-select or group move; prefabs cover whole buildings).
-- Ground is flat: no terrain heights, rivers or cliffs yet.
+- The region scenes are made by scripts in the game (`scripts/scenes/`); edit one here and tell Claude, who keeps the script or retires it for that region.
+- Water is placed as sheets at a level: shaping a riverbed doesn't move the river.
 - Buildings don't break: walls and roofs are solid, not destructible.
-- Characters stand and talk; they don't walk routes.
