@@ -6,6 +6,7 @@ import { TYPES, GROUPS, emptyScene, defaults } from '../game/src/scene/schema.js
 import { PREFABS } from '../game/src/data/prefabs.js';
 import { validateScene } from '../game/src/scene/validate.js';
 import { startGame } from '../game/src/Game.js';
+import { runBench } from '../game/src/debug/Bench.js';
 import { View } from './view.js';
 import { h, $, toast, sheet, ask } from './ui.js';
 import { doc, on, changed, load, json, dirty, undo, redo, canUndo, canRedo, addObject, select as selectObj, selected, duplicate, remove, readLocal, checkpoint, normalizeScript, selection, duplicateMany, removeMany, byId } from './doc.js';
@@ -343,22 +344,26 @@ function helpSheet() {
 // ---- play ------------------------------------------------------------------------------------------------------
 
 let game = null;
-function startPlay() {
+function startPlay({ bench = false } = {}) {
     if (game) return;
-    const errs = problems.filter(p => p.level === 'error');
-    const data = JSON.parse(json());
+    // The benchmark always plays the game's own Verdant Reach (its path runs through Thornwick), whatever is open.
+    if (bench && !GAME_SCENES.verdant) { toast('The benchmark needs the Verdant Reach, which this build lacks.', 'bad'); return; }
+    const errs = bench ? [] : problems.filter(p => p.level === 'error');
+    const data = bench ? JSON.parse(JSON.stringify(GAME_SCENES.verdant)) : JSON.parse(json());
     const root = h('div#play-root',
         h('canvas#play-canvas'),
         h('div#play-hud'),
         h('div.play-bar',
-            h('span.play-tag', 'Playing · ', data.name || data.id),
-            h('button.btn.small', { type: 'button', on: { click: () => { stopPlay(); startPlay(); } } }, 'Restart'),
+            h('span.play-tag', bench ? 'Benchmark · ' : 'Playing · ', data.name || data.id),
+            h('button.btn.small', { type: 'button', title: 'A fixed 46 s run through Thornwick, with two cottages burning: measures the frame rate', on: { click: () => { stopPlay(); startPlay({ bench: true }); } } }, 'Bench'),
+            h('button.btn.small', { type: 'button', on: { click: () => { stopPlay(); startPlay({ bench }); } } }, 'Restart'),
             h('button.btn.primary', { type: 'button', on: { click: () => stopPlay() } }, 'Stop')));
     document.body.append(root);
     view.paused = true;
     try {
         game = startGame({ canvas: $('play-canvas'), hudEl: $('play-hud'), data, persist: false, onLink: () => { stopPlay(); startPlay(); } });
         window.__EL = game.api;
+        if (bench) { const g = game; setTimeout(() => { if (game === g) runBench(g.api); }, 1500); }
         if (errs.length) toast(`${errs.length} problem${errs.length > 1 ? 's' : ''} in Check: some things may not work.`, 'bad');
     } catch (e) {
         console.error(e);
@@ -372,6 +377,7 @@ function stopPlay() {
     game = null;
     window.__EL = null;
     $('play-root')?.remove();
+    document.getElementById('bench-card')?.remove();
     view.paused = false;
     view.resize();
 }

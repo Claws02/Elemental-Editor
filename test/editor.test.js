@@ -229,6 +229,18 @@ const again = await ev(() => ({ step: __EL?.story?.step, bodies: __EL?.Physics.s
 await page.click('.play-bar .btn.primary');
 check(again.step === 'intro' && again.bodies > 50, `Play works again after Stop (a fresh world: ${again.bodies} bodies)`);
 
+// The benchmark: Bench plays the Verdant Reach and walks the fixed path, measuring every frame.
+await page.click('#play');
+await page.waitForFunction(() => window.__EL?.ready, null, { timeout: 30000 }).catch(() => {});
+await page.click('.play-bar button[title^="A fixed"]');
+await page.waitForFunction(() => window.__EL?.ready && window.__EL.perf?.onFrame, null, { timeout: 60000 }).catch(() => {});
+await wait(1500);
+const bench = await ev(() => ({ tag: document.querySelector('.play-tag')?.textContent, running: !!__EL?.perf?.onFrame, cottage: !!__EL?.world?.objects.get('Thornwick_03_cottage')?.structure }));
+await page.click('.play-bar .btn.primary');
+await wait(600);
+const benchGone = await ev(() => !document.getElementById('play-root') && !document.getElementById('bench-card'));
+check(/^Benchmark/.test(bench.tag) && bench.running && bench.cottage && benchGone, `Bench runs the benchmark through Thornwick from the play bar, and Stop leaves it (${JSON.stringify(bench)})`);
+
 // ---- 9. save for Claude -----------------------------------------------------------------------------------------
 await wait(400);
 await page.click('#save');
