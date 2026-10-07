@@ -380,11 +380,14 @@ check(shifted5.length >= 4 && shifted5.every(([dx, dz]) => Math.abs(dx - shifted
 const nBefore = await ev(() => __ED.doc.scene.objects.length);
 await page.click('#panel-body button:has-text("Delete all")');
 await wait(400);
+// The box takes in Oriel, whom Saltmere's story uses: the editor warns first.
+const warned = await page.isVisible('.modal');
+if (warned) { await page.click('.modal button:has-text("Delete")'); await wait(400); }
 const nAfter = await ev(() => __ED.doc.scene.objects.length);
 await page.click('#undo');
 await wait(400);
 const nBack = await ev(() => __ED.doc.scene.objects.length);
-check(nAfter === nBefore - shifted5.length && nBack === nBefore, `Delete all, and one undo brings them all back (${nBefore} → ${nAfter} → ${nBack})`);
+check(warned && nAfter === nBefore - shifted5.length && nBack === nBefore, `Delete all (warned: the story uses one), and one undo brings them all back (${nBefore} → ${nAfter} → ${nBack})`);
 await page.click('#multi');
 
 // A patrol route: the points show, and drag.
